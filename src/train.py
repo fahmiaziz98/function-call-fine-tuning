@@ -115,6 +115,9 @@ def train(config: TrainingConfig) -> None:
     trainer.save_model(config.output_dir)
     tokenizer.save_pretrained(config.output_dir)
 
+    if wandb.run is None:
+        run = wandb.init(project=WANDB_PROJECT, id=run.id, resume="must")
+
     adapter_artifact = wandb.Artifact(
         name="tool-calling-adapter",
         type="model",
