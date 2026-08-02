@@ -18,7 +18,7 @@ from schema import ResponseType, ToolCallExample
 RANDOM_SEED = 42
 VAL_RATIO = 0.05
 TEST_RATIO = 0.05
-DEDUP_THRESHOLD = 0.95
+DEDUP_THRESHOLD = 0.99
 DATASET_ARTIFACT_NAME = "tool-calling-dataset"
 
 # Glaive marks no-tool-call turns with this literal string in its
