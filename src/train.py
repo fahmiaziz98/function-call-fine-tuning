@@ -1,8 +1,8 @@
+from unsloth import FastLanguageModel
 import wandb
 from datasets import load_dataset
 from loguru import logger
 from trl import SFTConfig, SFTTrainer
-from unsloth import FastLanguageModel
 
 from config import WANDB_PROJECT, TrainingConfig
 
@@ -90,6 +90,8 @@ def train(config: TrainingConfig) -> None:
         num_train_epochs=config.num_train_epochs,
         warmup_steps=config.warmup_steps,
         seed=config.seed,
+        fp16=config.fp16,
+        bf16=config.bf16,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
