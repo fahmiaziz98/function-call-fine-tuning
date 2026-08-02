@@ -24,6 +24,38 @@ DATASET_ARTIFACT_NAME = "tool-calling-dataset"
 # Glaive marks no-tool-call turns with this literal string in its
 # "chat" field structure; adjust if using a different source dataset.
 NO_FUNCTION_CALL_MARKER = "none"
+TOOL_CALL_PATTERN = re.compile(
+    r'\{\s*"name"\s*:\s*"(?P<name>[^"]+)"\s*,\s*"arguments"\s*:\s*\'(?P<arguments>.*)\'\s*\}',
+    re.DOTALL,
+)
+
+
+def normalize_tool_call(raw_call: str) -> str | None:
+    """Normalize a Glaive-style tool call into clean, consistent JSON.
+
+    Glaive wraps the "arguments" value as a single-quoted JSON string
+    inside the outer JSON object, which is not valid standard JSON. This
+    parses that structure and re-serializes it as a proper nested object,
+    so the model is trained on consistent, directly-parseable output.
+
+    Args:
+        raw_call: Raw tool call text, e.g.
+            '{"name": "x", "arguments": \'{"a": 1}\'}'.
+
+    Returns:
+        A clean JSON string, or None if the pattern doesn't match (row
+        should be skipped as malformed).
+    """
+    match = TOOL_CALL_PATTERN.search(raw_call)
+    if not match:
+        return None
+
+    try:
+        arguments = json.loads(match.group("arguments"))
+    except json.JSONDecodeError:
+        return None
+
+    return json.dumps({"name": match.group("name"), "arguments": arguments}, ensure_ascii=False)
 
 
 def parse_glaive_row(row: dict) -> ToolCallExample | None:
@@ -67,6 +99,10 @@ def parse_glaive_row(row: dict) -> ToolCallExample | None:
     if is_tool_call:
         # Strip the tag, keep just the JSON call payload as the target.
         assistant_text = assistant_text.removeprefix("<functioncall>").strip()
+        normalized = normalize_tool_call(assistant_text)
+        if not normalized:
+            return None
+        assistant_text = normalized
 
     response_type = ResponseType.TOOL_CALL if is_tool_call else ResponseType.NO_TOOL
 
