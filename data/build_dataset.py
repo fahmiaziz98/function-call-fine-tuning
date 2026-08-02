@@ -29,6 +29,12 @@ NO_FUNCTION_CALL_MARKER = "none"
 def parse_glaive_row(row: dict) -> ToolCallExample | None:
     """Parse a single Glaive Function-Calling v2 row into a ToolCallExample.
 
+    Only the first user/assistant turn is extracted, even if the raw
+    conversation has multiple turns — this matches the project's scope of
+    single-turn tool-call decisions (see SYSTEM_DESIGN.md Section 2:
+    "Non-goals"). Later turns (e.g. a follow-up FUNCTION RESPONSE and the
+    natural-language summary after it) are intentionally dropped.
+
     Args:
         row: A raw row from the Glaive dataset, expected to have "system",
             "chat" fields following Glaive's function-calling format.
@@ -52,7 +58,16 @@ def parse_glaive_row(row: dict) -> ToolCallExample | None:
     if not user_text or not assistant_text:
         return None
 
-    is_tool_call = assistant_text.strip().startswith("{") and '"name"' in assistant_text
+    # Glaive marks tool-call responses with a literal "<functioncall>" tag
+    # before the JSON payload — NOT a bare "{" as previously assumed. That
+    # earlier check silently misclassified every real tool-call example as
+    # NO_TOOL, since none of them start with "{" directly.
+    is_tool_call = assistant_text.startswith("<functioncall>")
+
+    if is_tool_call:
+        # Strip the tag, keep just the JSON call payload as the target.
+        assistant_text = assistant_text.removeprefix("<functioncall>").strip()
+
     response_type = ResponseType.TOOL_CALL if is_tool_call else ResponseType.NO_TOOL
 
     return ToolCallExample(
