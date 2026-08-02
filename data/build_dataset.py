@@ -180,16 +180,24 @@ def log_dataset_artifact(output_path: Path, counts: dict) -> None:
     logger.info(f"Dataset logged as W&B Artifact '{DATASET_ARTIFACT_NAME}'")
 
 
-def main(output_dir: str) -> None:
+def main(output_dir: str, max_samples: int | None = None) -> None:
     """Build the tool-calling dataset end-to-end and log it to W&B.
 
     Args:
         output_dir: Directory where the resulting JSONL files are written.
+        max_samples: If set, only the first `max_samples` raw rows are
+            loaded and processed. Useful for quickly testing the pipeline
+            (parsing, dedup, splitting) without waiting on the full
+            dataset. Leave unset for a real training run.
     """
     output_path = Path(output_dir)
 
     logger.info("Loading Glaive Function-Calling v2...")
     raw_dataset = load_dataset("glaiveai/glaive-function-calling-v2")["train"]
+
+    if max_samples is not None:
+        raw_dataset = raw_dataset.select(range(min(max_samples, len(raw_dataset))))
+        logger.info(f"max_samples set -> using {len(raw_dataset)} raw rows")
 
     logger.info("Parsing examples...")
     examples = build_examples(raw_dataset)
@@ -220,5 +228,11 @@ if __name__ == "__main__":
         default="./data/processed",
         help="Directory to write train/val/test JSONL files.",
     )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="If set, only process the first N raw rows (for quick local testing).",
+    )
     args = parser.parse_args()
-    main(args.output_dir)
+    main(args.output_dir, args.max_samples)
