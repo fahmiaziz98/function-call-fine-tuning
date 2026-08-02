@@ -113,13 +113,13 @@ def train(config: TrainingConfig) -> None:
     trainer.save_model(config.output_dir)
     tokenizer.save_pretrained(config.output_dir)
 
-    # adapter_artifact = wandb.Artifact(
-    #     name="tool-calling-adapter",
-    #     type="model",
-    #     metadata={"base_model": config.model_name, "run_name": config.run_name},
-    # )
+    adapter_artifact = wandb.Artifact(
+        name="tool-calling-adapter",
+        type="model",
+        metadata={"base_model": config.model_name, "run_name": config.run_name},
+    )
     # adapter_artifact.add_dir(config.output_dir)
-    # run.log_artifact(adapter_artifact)
+    run.log_artifact(adapter_artifact)
 
     if config.push_to_hub:
         model.push_to_hub(config.hf_repo_id)

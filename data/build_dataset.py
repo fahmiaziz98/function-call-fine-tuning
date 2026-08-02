@@ -269,7 +269,7 @@ def main(output_dir: str, max_samples: int | None = None) -> None:
     counts = {"train_count": len(train), "val_count": len(val), "test_count": len(test)}
     logger.info(f"Done. {counts}")
 
-    # log_dataset_artifact(output_path, counts)
+    log_dataset_artifact(output_path, counts)
 
 
 if __name__ == "__main__":
