@@ -76,6 +76,7 @@ def parse_glaive_row(row: dict) -> ToolCallExample | None:
         skipped.
     """
     system_text = row.get("system", "").strip()
+    system_text = re.sub(r"^SYSTEM:\s*", "", system_text)
     chat_text = row.get("chat", "").strip()
     if not system_text or not chat_text:
         return None
