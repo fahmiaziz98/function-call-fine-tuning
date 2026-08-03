@@ -123,16 +123,20 @@ def train(config: TrainingConfig) -> None:
         type="model",
         metadata={"base_model": config.model_name, "run_name": config.run_name},
     )
-    # adapter_artifact.add_dir(config.output_dir)
+    adapter_artifact.add_dir(config.output_dir)
     run.log_artifact(adapter_artifact)
 
     if config.push_to_hub:
-        model.push_to_hub(config.hf_repo_id)
-        tokenizer.push_to_hub(config.hf_repo_id)
-        logger.info(f"Adapter pushed to https://huggingface.co/{config.hf_repo_id}")
+        FastLanguageModel.for_inference(model)
+        model.push_to_hub_merged(
+            config.hf_repo_id,
+            tokenizer,
+            save_method="merged_16bit",
+        )
+        logger.info(f"Model pushed to https://huggingface.co/{config.hf_repo_id}")
 
     run.finish()
-    logger.info(f"Training complete. Adapter saved to {config.output_dir}")
+    logger.info(f"Training complete. Model saved to {config.output_dir}")
 
 
 if __name__ == "__main__":
