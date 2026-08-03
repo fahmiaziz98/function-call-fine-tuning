@@ -44,8 +44,8 @@ class TrainingConfig:
     num_train_epochs: int = 3
     warmup_steps: int = 50
     seed: int = 42
-    fp16: bool = True
-    bf16: bool = False
+    fp16: bool = False
+    bf16: bool = True
 
     run_name: str = field(default_factory=lambda: f"run-{uuid.uuid4().hex[:8]}")
     dataset_artifact: str = "tool-calling-dataset:latest"

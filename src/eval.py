@@ -10,7 +10,7 @@ from loguru import logger
 
 from config import WANDB_PROJECT
 
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 128
 
 
 def load_model(checkpoint: str):
