@@ -148,7 +148,7 @@ login()
 !python src/train.py
 
 # 3. Evaluate
-!python src/evaluate.py \
+!python src/eval.py \
     --checkpoint ./checkpoints/tool-calling \
     --test_file ./data/processed/test.jsonl \
     --run_id <run_id_from_wandb>
@@ -187,7 +187,7 @@ function-call-fine-tuning/
 ├── src/
 │   ├── config.py                # TrainingConfig
 │   ├── train.py                   # Unsloth + SFTTrainer QLoRA loop
-│   ├── evaluate.py                 # tool-call + abstention metrics
+│   ├── eval.py                     # tool-call + abstention metrics
 │   ├── inference.py                 # ToolCallRouter
 │   └── tools.py                       # mock tool schemas + implementations
 ├── test_tool_calling.py                # real-world sanity check script
