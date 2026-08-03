@@ -1,7 +1,7 @@
 import argparse
 
-from inference import Reply, ToolCall, ToolCallRouter
-from tools import TOOL_IMPLEMENTATIONS, TOOL_SCHEMAS
+from src.inference import Reply, ToolCall, ToolCallRouter
+from src.tools import TOOL_IMPLEMENTATIONS, TOOL_SCHEMAS
 
 TEST_CASES = [
     # Easy: single required argument, unambiguous.
