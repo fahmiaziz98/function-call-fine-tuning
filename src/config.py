@@ -50,5 +50,5 @@ class TrainingConfig:
     run_name: str = field(default_factory=lambda: f"run-{uuid.uuid4().hex[:8]}")
     dataset_artifact: str = "tool-calling-dataset:latest"
 
-    push_to_hub: bool = False
+    push_to_hub: bool = True
     hf_repo_id: str = "fahmiaziz/qwen2.5-1.5b-tool-calling"
