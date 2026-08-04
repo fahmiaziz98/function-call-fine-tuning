@@ -1,11 +1,19 @@
-# Qwen2.5 Tool-Calling Fine-Tune
+# Tool-Calling Fine-Tune
 
 A QLoRA fine-tune of `Qwen2.5-1.5B-Instruct` that decides, given a user
 request and a set of available tool definitions, whether to call a tool
 (and with which arguments) or reply in plain text.
 
 Trained with [Unsloth](https://github.com/unslothai/unsloth) on a single
-**NVIDIA A10 GPU**.
+**NVIDIA A10 GPU**, exported to **GGUF** for CPU deployment via
+`llama-cpp-python`, and served through a small Streamlit demo.
+
+#### Links
+ 
+- Merged 16-bit model: https://huggingface.co/fahmiaziz/qwen2.5-1.5b-tool-calling
+- GGUF (quantized, for CPU/llama.cpp): https://huggingface.co/fahmiaziz/qwen2.5-1.5b-tool-calling-gguf
+- Training notebook: https://colab.research.google.com/drive/1WO_j5w00Ze6bbziCBZMtlInP_bWFYojS?usp=sharing
+
 
 ### Why fine-tune instead of prompting
 
@@ -24,8 +32,8 @@ larger general-purpose model, but only within tool-calling decisions.
   to call a tool. It does not execute anything actually running a tool
   and returning its result is the calling application's responsibility.
 
-
 ### Base model & method
+
 | | |
 |---|---|
 | Base model | `unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit` |
@@ -90,7 +98,6 @@ What time is it in Tokyo right now?
 For requests that don't need a tool, the assistant turn is a normal text
 reply instead of a JSON call.
 
-
 ### Results
 
 **Training**
@@ -102,12 +109,6 @@ reply instead of a JSON call.
 | Final grad_norm | 0.210 |
 | Epochs | 3 (3,492 steps) |
 | Train runtime | ~108 min on A10 |
-
-Loss dropped quickly in the first ~0.2 epochs (model learning the basic
-JSON/no-tool output structure), then converged gradually.
-A pattern consistent with a task that has a fairly constrained output format, where
-the harder remaining signal is precise argument extraction rather than
-format learning.
 
 **Evaluation** (held-out test set)
 
@@ -124,12 +125,26 @@ shouldn't. Abstention accuracy (0.951) shows the model is generally good
 at recognizing when *not* to call a tool, which is the harder of the two
 failure modes to avoid in practice.
 
+---
+
 ## Quickstart
+
+**Training** (GPU required — training deps are separated from
+deployment deps, see `requirements-training.txt`). If you want to push
+hugging face hub, make sure to login first using `huggingface-cli login`.
+And change configuration in `src/config.py`:
+
+```python
+push_to_hub: bool = True
+hf_repo_id: str = "your-username/qwen2.5-1.5b-tool-calling"
+```
+
+#### Run on Notebook
 
 ```python
 !git clone https://github.com/fahmiaziz98/function-call-fine-tuning.git
 %cd function-call-fine-tuning
-!uv pip install --system -q -r requirements.txt
+!uv pip install --system -q -r requirements-training.txt
 
 import sys
 sys.path.append("./data")
@@ -152,27 +167,29 @@ login()
     --checkpoint ./checkpoints/tool-calling \
     --test_file ./data/processed/test.jsonl \
     --run_id <run_id_from_wandb>
+
+# 4. Quick manual sanity check before spending time on export
+!python scripts/test_tool_calling.py --checkpoint ./checkpoints/tool-calling
+
+# 5. Export to GGUF and push to the HF Hub
+!python src/export_gguf.py \
+    --checkpoint ./checkpoints/tool-calling \
+    --hf_repo_gguf your-username/qwen2.5-1.5b-tool-calling-gguf \
+    --quant q4_k_m
 ```
 
+**Deployment** (CPU only, no GPU/Unsloth needed)
 
-## Inference
-
-```python
-from inference import ToolCallRouter, ToolCall, Reply
-from tools import TOOL_SCHEMAS, TOOL_IMPLEMENTATIONS
-
-router = ToolCallRouter("your-username/qwen2.5-1.5b-tool-calling")
-result = router.route("What time is it in Tokyo?", TOOL_SCHEMAS)
-
-if isinstance(result, ToolCall):
-    output = TOOL_IMPLEMENTATIONS[result.name](**result.arguments)
-elif isinstance(result, Reply):
-    output = result.text
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
 ```
 
-`test_tool_calling.py` runs a small real-world sanity check against 4 mock
-tools (simple → complex) plus a couple of no-tool requests useful for
-spot-checking behavior beyond aggregate metrics.
+`scripts/test_tool_calling.py` runs a small real-world sanity check right
+after training (HF/Unsloth checkpoint, GPU required) useful for catching
+obvious quality issues before spending time on merge/export/quantize.
+Testing the actual deployed artifact means running the Streamlit app or
+querying the GGUF file directly.
 
 ---
 
@@ -181,17 +198,23 @@ spot-checking behavior beyond aggregate metrics.
 ```
 function-call-fine-tuning/
 ├── data/
-│   ├── build_dataset.py    # parses Glaive, dedupes, logs W&B artifact
-│   ├── dedup.py              # MinHash + LSH near-duplicate removal
-│   └── schema.py              # ToolCallExample, ResponseType definitions
+│   ├── build_dataset.py       # parses Glaive, dedupes, logs W&B artifact
+│   ├── dedup.py                 # MinHash + LSH near-duplicate removal
+│   └── schema.py                 # ToolCallExample, ResponseType definitions
 ├── src/
-│   ├── config.py                # TrainingConfig
-│   ├── train.py                   # Unsloth + SFTTrainer QLoRA loop
-│   ├── eval.py                     # tool-call + abstention metrics
-│   ├── inference.py                 # ToolCallRouter
-│   └── tools.py                       # mock tool schemas + implementations
-├── test_tool_calling.py                # real-world sanity check script
-├── requirements.txt
+│   ├── config.py                    # TrainingConfig
+│   ├── train.py                       # Unsloth + SFTTrainer QLoRA loop
+│   ├── eval.py                          # tool-call + abstention metrics
+│   ├── export_gguf.py                     # merge -> GGUF -> quantize -> push to HF Hub
+│   ├── inference.py                         # ToolCallRouter (HF/Unsloth, GPU, dev/debug)
+│   ├── tools.py                            # mock tool schemas + implementations
+│   └── llm/
+│       └── gguf_chat.py                     # GGUF chat + tool-call parsing (CPU, production)
+├── scripts/
+│   └── test_tool_calling.py                       # real-world sanity check, unsloth
+├── streamlit_app.py                                 # demo UI, GGUF path
+├── requirements.txt                                   # deployment: streamlit, llama-cpp-python
+├── requirements-training.txt                           # training: unsloth, torch, trl, peft, ...
 └── README.md
 ```
 
@@ -205,14 +228,14 @@ function-call-fine-tuning/
 - **Occasional malformed JSON on multi-argument calls**, e.g. an observed
   case where the model produced `{"location": "Bandung", , "cuisine":
   "Italian"}` a stray comma making the output invalid JSON. Because
-  `ToolCallRouter` only returns a `ToolCall` on successful parsing, this
-  case falls back to being treated as a plain-text `Reply` (containing the
-  raw malformed JSON as text) rather than crashing but it means the tool
-  call is effectively lost rather than executed.
+  `parse_tool_call()` only returns a `ToolCall` on successful parsing,
+  this case falls back to being treated as a plain-text reply (containing
+  the raw malformed JSON) rather than crashing but the tool call is
+  effectively lost rather than executed.
 - **A hard case with 5 arguments including a list argument
   (`schedule_meeting`) was not triggered** in one manual test, even though
   all required information was present in the request. The model replied
-  conversationally instead of calling the tool — consistent with
+  conversationally instead of calling the tool consistent with
   argument-heavy calls being the harder end of this model's ability.
 - **Single-turn only.** No evaluation of multi-turn tool use (consuming a
   function's result and deciding on a follow-up call).
