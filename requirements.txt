@@ -1,3 +1,2 @@
-streamlit>=1.48.0
 llama-cpp-python>=0.3.16
 huggingface-hub>=0.35.0
