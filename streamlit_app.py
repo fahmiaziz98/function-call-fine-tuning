@@ -2,10 +2,9 @@ import json
 
 import streamlit as st
 
-from llm import (
+from src.llm.gguf_chat import (
     ChatConfig,
     build_system_prompt,
-    generate_response,
     load_model,
     parse_tool_call,
     stream_chat,
