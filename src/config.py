@@ -52,4 +52,3 @@ class TrainingConfig:
 
     push_to_hub: bool = True
     hf_repo_id: str = "fahmiaziz/qwen2.5-1.5b-tool-calling"
-    hf_repo_gguf: str = "fahmiaziz/qwen2.5-1.5b-tool-calling-gguf"
