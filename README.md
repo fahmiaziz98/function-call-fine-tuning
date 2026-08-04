@@ -13,6 +13,7 @@ Trained with [Unsloth](https://github.com/unslothai/unsloth) on a single
 - Merged 16-bit model: https://huggingface.co/fahmiaziz/qwen2.5-1.5b-tool-calling
 - GGUF (quantized, for CPU/llama.cpp): https://huggingface.co/fahmiaziz/qwen2.5-1.5b-tool-calling-gguf
 - Training notebook: https://colab.research.google.com/drive/1WO_j5w00Ze6bbziCBZMtlInP_bWFYojS?usp=sharing
+- Demo: https://function-call-fine-tuning-k2c7wm.streamlit.app/
 
 
 ### Why fine-tune instead of prompting
