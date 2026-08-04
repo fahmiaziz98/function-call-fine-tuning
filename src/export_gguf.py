@@ -1,103 +1,233 @@
-import argparse
+"""Export a merged 16-bit checkpoint to GGUF manually via llama.cpp,
+bypassing Unsloth's built-in GGUF export (which has multiple internal
+bugs in this version — see conversation history / GitHub issue #5495).
+"""
+
 import os
-import sys
+import subprocess
 
+from huggingface_hub import HfApi, snapshot_download
 from loguru import logger
-from unsloth import FastLanguageModel
 
-from config import TrainingConfig
-
-MAX_SEQ_LENGTH = 1024
-
-# Common quantization levels, roughly ordered smallest/lowest-quality to
-# largest/highest-quality. q4_k_m is a solid default balance for a 1.5B
-# model on modest hardware.
-SUPPORTED_QUANTS = ["q4_k_m", "q5_k_m", "q8_0", "f16"]
+MERGED_LOCAL_DIR = "./exported/merged_16bit"
+GGUF_OUTPUT_PATH = "./exported/gguf/model.gguf"
+LLAMA_CPP_DIR = "./llama.cpp"
 
 
-def _patch_unsloth_gguf_import_bug() -> None:
-    """Work around a known Unsloth bug (GitHub issue #5495).
-
-    unsloth_zoo writes llama.cpp's convert_hf_to_gguf.py to a temp file and
-    imports it directly, but that script does `from conversion import ...`
-    which fails because the temp file's directory isn't on sys.path. This
-    patches the loader to add that directory before executing the module.
-    """
-    import unsloth_zoo.llama_cpp as llama_cpp_module
-
-    original_load = llama_cpp_module._load_module_from_path
-
-    def patched_load(filepath, module_name):
-        script_dir = os.path.dirname(filepath)
-        if script_dir not in sys.path:
-            sys.path.insert(0, script_dir)
-        return original_load(filepath, module_name)
-
-    llama_cpp_module._load_module_from_path = patched_load
-
-
-_patch_unsloth_gguf_import_bug()
-
-
-def export_to_gguf(checkpoint: str, quant: str, config: TrainingConfig) -> None:
-    """Load a merged checkpoint and export it to GGUF format.
-
-    Saves locally first (rather than push_to_hub_gguf directly) to avoid a
-    known Unsloth bug where the internal temp folder used during
-    push_to_hub_gguf sometimes doesn't get config.json written before
-    conversion starts.
+def download_merged_model(repo_id: str) -> str:
+    """Download the merged 16-bit checkpoint from the HF Hub.
 
     Args:
-        checkpoint: HF Hub repo id or local path of the merged 16-bit model.
-        quant: Quantization method, one of SUPPORTED_QUANTS.
-        config: TrainingConfig object containing export settings.
+        repo_id: HF Hub repo id of the merged model.
+
+    Returns:
+        Local path where the model was downloaded.
+    """
+    logger.info(f"Downloading {repo_id}...")
+    local_path = snapshot_download(repo_id=repo_id, local_dir=MERGED_LOCAL_DIR)
+    logger.info(f"Downloaded to {local_path}")
+    return local_path
+
+
+def setup_llama_cpp() -> None:
+    """Clone llama.cpp and install required dependencies."""
+
+    if not os.path.exists(LLAMA_CPP_DIR):
+        logger.info("Cloning llama.cpp...")
+
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "https://github.com/ggml-org/llama.cpp",
+                LLAMA_CPP_DIR,
+            ],
+            check=True,
+        )
+
+    logger.info("Installing build dependencies...")
+
+    subprocess.run(
+        [
+            "apt-get",
+            "update",
+        ],
+        check=True,
+    )
+
+    subprocess.run(
+        [
+            "apt-get",
+            "install",
+            "-y",
+            "cmake",
+            "build-essential",
+        ],
+        check=True,
+    )
+
+    logger.info("Installing Python requirements...")
+
+    subprocess.run(
+        [
+            "pip",
+            "install",
+            "-q",
+            "-r",
+            f"{LLAMA_CPP_DIR}/requirements.txt",
+        ],
+        check=True,
+    )
+
+
+def convert_to_gguf_f16(model_dir: str, output_path: str) -> None:
+    """Convert HF model to base GGUF format (f16), the required first step
+    before K-quant quantization.
+
+    Args:
+        model_dir: Local directory containing the merged 16-bit model.
+        output_path: Destination .gguf file path (f16, unquantized).
 
     Raises:
-        ValueError: If `quant` is not a supported quantization method.
+        subprocess.CalledProcessError: If the conversion script fails.
     """
-    if quant not in SUPPORTED_QUANTS:
-        raise ValueError(f"Unsupported quant '{quant}'. Choose from {SUPPORTED_QUANTS}.")
-
-    logger.info(f"Loading checkpoint from {checkpoint}...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=checkpoint,
-        max_seq_length=MAX_SEQ_LENGTH,
-        load_in_4bit=False,
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    logger.info("Converting HF model to base GGUF (f16)...")
+    subprocess.run(
+        [
+            "python", f"{LLAMA_CPP_DIR}/convert_hf_to_gguf.py",
+            model_dir,
+            "--outfile", output_path,
+            "--outtype", "f16",
+        ],
+        check=True,
     )
-    FastLanguageModel.for_inference(model)
+    logger.info(f"Base GGUF (f16) written to {output_path}")
 
-    local_dir = "./exported/merged_16bit"
-    logger.info(f"Saving merged model locally to {local_dir}...")
-    model.save_pretrained(local_dir)
-    tokenizer.save_pretrained(local_dir)
 
-    # Sanity check before conversion — fail fast with a clear message
-    # instead of letting the GGUF converter hit the same missing-file bug.
-    config_path = os.path.join(local_dir, "config.json")
-    if not os.path.exists(config_path):
-        raise RuntimeError(f"config.json missing at {local_dir} after save_pretrained — save failed.")
+def build_llama_quantize_binary() -> str:
+    """Build llama-quantize from source if it does not already exist.
 
-    logger.info(f"Exporting to GGUF (quant={quant})...")
-    gguf_dir = "./exported/gguf"
-    model.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=quant)
-    logger.info(f"GGUF export complete. Files written to {gguf_dir}")
+    Returns:
+        Path to the llama-quantize executable.
 
-    logger.info(f"Pushing GGUF files to {config.hf_repo_gguf}...")
-    from huggingface_hub import HfApi
+    Raises:
+        RuntimeError: If the binary cannot be found after compilation.
+        subprocess.CalledProcessError: If CMake configuration/build fails.
+    """
+    import shutil
 
+    build_dir = os.path.join(LLAMA_CPP_DIR, "build")
+
+    possible_paths = [
+        os.path.join(build_dir, "bin", "llama-quantize"),
+        os.path.join(build_dir, "bin", "Release", "llama-quantize"),
+        os.path.join(build_dir, "llama-quantize"),
+    ]
+
+    for path in possible_paths:
+        if os.path.isfile(path):
+            logger.info(f"Using existing llama-quantize: {path}")
+            return path
+
+    logger.info("Building llama-quantize...")
+
+    if shutil.which("cmake") is None:
+        raise RuntimeError(
+            "cmake is not installed.\n"
+            "Install it first:\n"
+            "apt-get update && apt-get install -y cmake build-essential"
+        )
+
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            LLAMA_CPP_DIR,
+            "-B",
+            build_dir,
+            "-DLLAMA_BUILD_TESTS=OFF",
+            "-DLLAMA_BUILD_EXAMPLES=OFF",
+            "-DLLAMA_BUILD_SERVER=OFF",
+        ],
+        check=True,
+    )
+
+    subprocess.run(
+        [
+            "cmake",
+            "--build",
+            build_dir,
+            "--target",
+            "llama-quantize",
+            "-j2",
+        ],
+        check=True,
+    )
+
+    for path in possible_paths:
+        if os.path.isfile(path):
+            logger.info(f"Built llama-quantize: {path}")
+            return path
+
+    raise RuntimeError(
+        "llama-quantize was successfully built but its location "
+        "could not be determined."
+    )
+
+
+def quantize_gguf(f16_path: str, quantized_path: str, quant: str) -> None:
+    """Quantize a base f16 GGUF file to a K-quant format (e.g. q4_k_m).
+
+    Args:
+        f16_path: Path to the base f16 .gguf file.
+        quantized_path: Destination path for the quantized .gguf file.
+        quant: Target quantization type, e.g. "Q4_K_M" (llama-quantize
+            expects uppercase).
+
+    Raises:
+        subprocess.CalledProcessError: If quantization fails.
+    """
+    binary_path = build_llama_quantize_binary()
+    logger.info(f"Quantizing to {quant}...")
+    subprocess.run([binary_path, f16_path, quantized_path, quant.upper()], check=True)
+    logger.info(f"Quantized GGUF written to {quantized_path}")
+
+
+def push_gguf_to_hub(gguf_path: str, repo_id: str) -> None:
+    """Upload the GGUF file to a HF Hub repo.
+
+    Args:
+        gguf_path: Local path to the .gguf file.
+        repo_id: Target HF Hub repo id.
+    """
     api = HfApi()
-    api.create_repo(repo_id=config.hf_repo_gguf, exist_ok=True)
-    api.upload_folder(folder_path=gguf_dir, repo_id=config.hf_repo_gguf)
-    logger.info(f"Push complete: https://huggingface.co/{config.hf_repo_gguf}")
+    api.create_repo(repo_id=repo_id, exist_ok=True)
+    api.upload_file(
+        path_or_fileobj=gguf_path,
+        path_in_repo=os.path.basename(gguf_path),
+        repo_id=repo_id,
+    )
+    logger.info(f"Pushed to https://huggingface.co/{repo_id}")
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export a merged checkpoint to GGUF.")
-    parser.add_argument(
-        "--checkpoint", type=str, required=True, help="HF Hub repo id or local path."
-    )
-    parser.add_argument(
-        "--quant", type=str, default="q4_k_m", choices=SUPPORTED_QUANTS,
-        help="Quantization method (default: q4_k_m).",
-    )
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Manually export a checkpoint to GGUF.")
+    parser.add_argument("--checkpoint", type=str, required=True)
+    parser.add_argument("--hf_repo_gguf", type=str, required=True)
+    parser.add_argument("--quant", type=str, default="q4_k_m")
     args = parser.parse_args()
-    export_to_gguf(args.checkpoint, args.quant, TrainingConfig())
+
+    model_dir = download_merged_model(args.checkpoint)
+    setup_llama_cpp()
+
+    f16_path = "./exported/gguf/model-f16.gguf"
+    quantized_path = f"./exported/gguf/model-{args.quant}.gguf"
+
+    convert_to_gguf_f16(model_dir, f16_path)
+    quantize_gguf(f16_path, quantized_path, args.quant)
+    push_gguf_to_hub(quantized_path, args.hf_repo_gguf)
