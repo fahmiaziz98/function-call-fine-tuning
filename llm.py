@@ -85,7 +85,7 @@ def load_model(
         n_ctx=config.context_size,
         n_batch=config.n_batch,
         n_threads=os.cpu_count() or 4,
-        n_gpu_layers=-1,
+        n_gpu_layers=0,
         seed=config.seed,
         verbose=False,
     )
