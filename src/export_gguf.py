@@ -1,8 +1,3 @@
-"""Export a merged 16-bit checkpoint to GGUF manually via llama.cpp,
-bypassing Unsloth's built-in GGUF export (which has multiple internal
-bugs in this version — see conversation history / GitHub issue #5495).
-"""
-
 import os
 import subprocess
 
