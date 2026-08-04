@@ -33,15 +33,13 @@ def get_model(repo_id: str, filename: str):
     )
 
 
-# ---------------- Sidebar ---------------- #
-
 with st.sidebar:
 
     st.title("⚙️ Settings")
 
     repo_id = st.text_input(
         "HF Repository",
-        value="your-username/model",
+        value="fahmiaziz/qwen2.5-1.5b-tool-calling-gguf",
     )
 
     filename = st.text_input(
@@ -74,10 +72,7 @@ with st.sidebar:
         st.rerun()
 
 
-# ---------------- Main ---------------- #
-
 st.title("🤖 Function Calling Demo")
-
 st.caption(
     "Powered by GGUF + llama.cpp"
 )
@@ -100,10 +95,7 @@ model = get_model(
 )
 
 
-# Render history
-
 for message in st.session_state.messages:
-
     if message["role"] == "system":
         continue
 
@@ -113,8 +105,6 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-
-# ---------------- Chat ---------------- #
 
 prompt = st.chat_input("Ask anything...")
 
@@ -135,7 +125,6 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # ---------- First LLM ---------- #
 
     with st.chat_message("assistant"):
 
@@ -157,8 +146,6 @@ if prompt:
 
     tool_call = parse_tool_call(first_response)
 
-    # ---------- Normal Chat ---------- #
-
     if tool_call is None:
 
         st.session_state.messages.append(
@@ -169,8 +156,6 @@ if prompt:
         )
 
         st.stop()
-
-    # ---------- Tool Call ---------- #
 
     with st.chat_message("assistant"):
 
@@ -217,7 +202,6 @@ if prompt:
         CONFIG.max_history_pairs,
     )
 
-    # ---------- Final LLM ---------- #
 
     with st.chat_message("assistant"):
 
