@@ -1,110 +1,174 @@
-TOOL_SCHEMAS = [
-    # 1. Easy: single required string argument.
+from __future__ import annotations
+
+from typing import Any, Callable
+
+
+TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
-        "name": "get_current_time",
-        "description": "Get the current time in a given city",
+        "name": "get_weather",
+        "description": "Get the current weather for a city.",
         "parameters": {
             "type": "object",
             "properties": {
-                "city": {"type": "string", "description": "The city to get the time for"}
+                "city": {
+                    "type": "string",
+                    "description": "The city name.",
+                }
             },
             "required": ["city"],
         },
     },
-    # 2. Easy-medium: two required arguments, both simple types.
     {
-        "name": "convert_currency",
-        "description": "Convert an amount from one currency to another",
+        "name": "calculator",
+        "description": "Evaluate a mathematical expression.",
         "parameters": {
             "type": "object",
             "properties": {
-                "amount": {"type": "number", "description": "The amount to convert"},
-                "from_currency": {"type": "string", "description": "The source currency code, e.g. USD"},
-                "to_currency": {"type": "string", "description": "The target currency code, e.g. EUR"},
+                "expression": {
+                    "type": "string",
+                    "description": "A mathematical expression, e.g. (10+5)*2",
+                }
             },
-            "required": ["amount", "from_currency", "to_currency"],
+            "required": ["expression"],
         },
     },
-    # 3. Medium: required + optional argument, needs the model to omit
-    # the optional field when not mentioned by the user.
     {
-        "name": "search_restaurants",
-        "description": "Search for restaurants in a given location",
+        "name": "search_wikipedia",
+        "description": "Search information about a topic.",
         "parameters": {
             "type": "object",
             "properties": {
-                "location": {"type": "string", "description": "The city or area to search in"},
-                "cuisine": {"type": "string", "description": "Optional cuisine type, e.g. Italian, Japanese"},
-                "max_price": {"type": "integer", "description": "Optional maximum price level, 1-4"},
+                "query": {
+                    "type": "string",
+                    "description": "The topic to search.",
+                }
             },
-            "required": ["location"],
+            "required": ["query"],
         },
     },
-    # 4. Hard: multiple required arguments including an array/enum-like
-    # field, requiring the model to correctly structure a list argument.
     {
-        "name": "schedule_meeting",
-        "description": "Schedule a meeting with one or more attendees",
+        "name": "send_email",
+        "description": "Send an email.",
         "parameters": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "The meeting title"},
-                "date": {"type": "string", "description": "Meeting date, format YYYY-MM-DD"},
-                "start_time": {"type": "string", "description": "Start time, format HH:MM"},
-                "duration_minutes": {"type": "integer", "description": "Meeting duration in minutes"},
-                "attendees": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of attendee names or emails",
+                "recipient": {
+                    "type": "string",
+                    "description": "Recipient email address.",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject.",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Email body.",
                 },
             },
-            "required": ["title", "date", "start_time", "duration_minutes", "attendees"],
+            "required": [
+                "recipient",
+                "subject",
+                "body",
+            ],
         },
     },
 ]
 
 
-def mock_get_current_time(city: str) -> dict:
-    """Return a deterministic mock time for a city."""
-    return {"city": city, "time": "14:32", "timezone": "mock/UTC+0"}
+def get_weather(city: str) -> dict[str, Any]:
+    """Return a deterministic weather response."""
 
-
-def mock_convert_currency(amount: float, from_currency: str, to_currency: str) -> dict:
-    """Return a deterministic mock currency conversion."""
     return {
-        "converted_amount": round(amount * 0.92, 2),
-        "from_currency": from_currency,
-        "to_currency": to_currency,
+        "city": city,
+        "temperature": 31,
+        "condition": "Sunny",
+        "humidity": 78,
+        "unit": "C",
     }
 
 
-def mock_search_restaurants(location: str, cuisine: str = None, max_price: int = None) -> dict:
-    """Return a deterministic mock restaurant search result."""
+def calculator(expression: str) -> dict[str, Any]:
+    """Evaluate a mathematical expression.
+
+    NOTE:
+        This uses eval() only for demonstration purposes.
+        Never expose this directly in production.
+    """
+
+    try:
+        result = eval(expression, {"__builtins__": {}}, {})
+
+        return {
+            "expression": expression,
+            "result": result,
+        }
+
+    except Exception as exc:
+
+        return {
+            "expression": expression,
+            "error": str(exc),
+        }
+
+
+def search_wikipedia(query: str) -> dict[str, Any]:
+    """Return a deterministic encyclopedia result."""
+
     return {
-        "location": location,
-        "cuisine": cuisine,
-        "max_price": max_price,
-        "results": ["Mock Bistro", "Mock Kitchen", "Mock Diner"],
+        "title": query,
+        "summary": (
+            f"{query} is a mock Wikipedia article returned "
+            "for demonstration purposes."
+        ),
+        "url": f"https://example.com/wiki/{query.replace(' ', '_')}",
     }
 
 
-def mock_schedule_meeting(
-    title: str, date: str, start_time: str, duration_minutes: int, attendees: list[str]
-) -> dict:
-    """Return a deterministic mock meeting confirmation."""
+def send_email(
+    recipient: str,
+    subject: str,
+    body: str,
+) -> dict[str, Any]:
+    """Return a mock email delivery result."""
+
     return {
-        "status": "scheduled",
-        "title": title,
-        "date": date,
-        "start_time": start_time,
-        "duration_minutes": duration_minutes,
-        "attendees": attendees,
+        "status": "sent",
+        "recipient": recipient,
+        "subject": subject,
+        "message_id": "mock-email-001",
+        "preview": body[:80],
     }
 
 
-TOOL_IMPLEMENTATIONS = {
-    "get_current_time": mock_get_current_time,
-    "convert_currency": mock_convert_currency,
-    "search_restaurants": mock_search_restaurants,
-    "schedule_meeting": mock_schedule_meeting,
+TOOL_IMPLEMENTATIONS: dict[str, Callable[..., dict[str, Any]]] = {
+    "get_weather": get_weather,
+    "calculator": calculator,
+    "search_wikipedia": search_wikipedia,
+    "send_email": send_email,
 }
+
+
+def execute_tool(
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Execute a tool by its name.
+
+    Args:
+        tool_name: Registered tool name.
+        arguments: Tool arguments.
+
+    Returns:
+        Tool execution result.
+
+    Raises:
+        ValueError:
+            If the requested tool is not registered.
+    """
+
+    tool = TOOL_IMPLEMENTATIONS.get(tool_name)
+
+    if tool is None:
+        raise ValueError(f"Unknown tool: {tool_name}")
+
+    return tool(**arguments)
