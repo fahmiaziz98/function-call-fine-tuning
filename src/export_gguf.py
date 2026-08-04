@@ -42,6 +42,11 @@ _patch_unsloth_gguf_import_bug()
 def export_to_gguf(checkpoint: str, quant: str, config: TrainingConfig) -> None:
     """Load a merged checkpoint and export it to GGUF format.
 
+    Saves locally first (rather than push_to_hub_gguf directly) to avoid a
+    known Unsloth bug where the internal temp folder used during
+    push_to_hub_gguf sometimes doesn't get config.json written before
+    conversion starts.
+
     Args:
         checkpoint: HF Hub repo id or local path of the merged 16-bit model.
         quant: Quantization method, one of SUPPORTED_QUANTS.
@@ -57,14 +62,33 @@ def export_to_gguf(checkpoint: str, quant: str, config: TrainingConfig) -> None:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=checkpoint,
         max_seq_length=MAX_SEQ_LENGTH,
-        load_in_4bit=False,  # already a merged 16-bit checkpoint, not QLoRA
+        load_in_4bit=False,
     )
-    FastLanguageModel.for_inference(model)  # set to inference mode
+    FastLanguageModel.for_inference(model)
+
+    local_dir = "./exported/merged_16bit"
+    logger.info(f"Saving merged model locally to {local_dir}...")
+    model.save_pretrained(local_dir)
+    tokenizer.save_pretrained(local_dir)
+
+    # Sanity check before conversion — fail fast with a clear message
+    # instead of letting the GGUF converter hit the same missing-file bug.
+    config_path = os.path.join(local_dir, "config.json")
+    if not os.path.exists(config_path):
+        raise RuntimeError(f"config.json missing at {local_dir} after save_pretrained — save failed.")
 
     logger.info(f"Exporting to GGUF (quant={quant})...")
-    model.push_to_hub_gguf(config.hf_repo_gguf, tokenizer, quantization_method=quant)
-    logger.info(f"GGUF export complete. Files written to {config.hf_repo_gguf}")
+    gguf_dir = "./exported/gguf"
+    model.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=quant)
+    logger.info(f"GGUF export complete. Files written to {gguf_dir}")
 
+    logger.info(f"Pushing GGUF files to {config.hf_repo_gguf}...")
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    api.create_repo(repo_id=config.hf_repo_gguf, exist_ok=True)
+    api.upload_folder(folder_path=gguf_dir, repo_id=config.hf_repo_gguf)
+    logger.info(f"Push complete: https://huggingface.co/{config.hf_repo_gguf}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export a merged checkpoint to GGUF.")
